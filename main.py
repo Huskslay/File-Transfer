@@ -12,6 +12,7 @@ from server import Server, Client, Communicator, SIZE, FORMAT
 from portfilemanager import PortFileManager
 
 KEYBIND = "ctrl+f10"
+VERSION = "v1.1.1"
 
 class Window:
     def __init__(self) -> None:
@@ -42,25 +43,37 @@ class HomeWindow(Window):
         super().__init__()
 
     def hotkey_callback(self):
+        if not self.hidden: return
         self.hidden = False
         keyboard.remove_hotkey(KEYBIND)
-        self.app.master.deiconify()        
+        keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
+        self.app.master.deiconify()    
+        self.app.master.attributes("-topmost", True)
+        self.app.master.attributes("-topmost", False)
+        self.app.master.focus_force()  
     def hide_and_set_hotkey(self):
+        if self.hidden or not self.can_hide: return
         self.hidden = True
+        keyboard.remove_hotkey(KEYBIND)
         keyboard.add_hotkey(KEYBIND, self.hotkey_callback)
         self.app.master.withdraw()
         
     def change_port(self):
+        self.can_hide = False
         new_port = self.app.port_manager.get_new_port()
-        if new_port < 0: return\
+        if new_port < 0: 
+            self.can_hide = True
+            return
         self.app.port_manager.write_port(new_port)
         self.app.port_manager.port = new_port
         self.address_label.config(text=f"Listening on {self.server.ip}:{self.app.port_manager.port}")
         self.server.close()
+        self.can_hide = True
 
     def setup(self) -> None:
         if os.path.exists("Temp"): shutil.rmtree("Temp")
 
+        self.can_hide = True
         self.running = True
         self.server = Server()
         self.thread = Thread(target=self.server_loop)
@@ -88,12 +101,13 @@ class HomeWindow(Window):
         label = ttk.Button(self.base_frame, text="Stop server and send file",
                            command=lambda: self.app.set_window(self.app.send_files_window), width=100)
         label.pack()
-        self.after = self.app.master.after(100, self.listen_for_result)
 
         if len(sys.argv) > 1: 
             if sys.argv[1] == "withdraw" and self.app.first_open: 
                 self.hide_and_set_hotkey()
         self.app.first_open = False
+        keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
+        self.after = self.app.master.after(100, self.listen_for_result)
     def listen_for_result(self):
         if not self.running:
             if self.hidden: self.hotkey_callback()
@@ -110,6 +124,7 @@ class HomeWindow(Window):
 
     def on_end(self) -> None:
         self.app.master.after_cancel(self.after)
+        keyboard.remove_hotkey(KEYBIND)
         if self.running:
             self.running = False
             self.server.close()
@@ -417,12 +432,16 @@ class App:
         self.window: Union[Window, None] = None
         self.first_open: bool = True
 
+        ttk.Label(self.master, text=VERSION).pack(side=tk.BOTTOM)
+
         self.systray: Union[SysTray, None] = None
         self.has_quit = False
 
         self.port_manager = PortFileManager()
         root.iconbitmap(self.port_manager.icon_location())
-        self.port_manager.port = self.port_manager.get_port()
+        self.port_manager.port = -1
+        while self.port_manager.port < 0:
+            self.port_manager.port = self.port_manager.get_port()
 
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
         
