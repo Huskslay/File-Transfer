@@ -16,10 +16,10 @@ class Communicator:
 class Server(Communicator):
     def __init__(self) -> None:
         self.ip = socket.gethostbyname(socket.gethostname())
+        
+    def setup(self, port: int) -> None:
         self.socket = socket.socket()
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
-    def setup(self, port: int) -> None:
         self.socket.bind((self.ip, port))
         self.socket.listen(1)
 
@@ -51,9 +51,10 @@ class Server(Communicator):
 
 class Client(Communicator):
     def __init__(self) -> None:
-        self.socket = socket.socket()
+        pass
 
     def connect(self, ip: str, port: int) -> None:
+        self.socket = socket.socket()
         self.socket.connect((ip, port))
 
         public_bytes = self.socket.recv(SIZE)
