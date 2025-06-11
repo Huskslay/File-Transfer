@@ -42,14 +42,18 @@ class HomeWindow(Window):
         super().__init__()
 
     def hotkey_callback(self):
+        if not self.hidden: return
         self.hidden = False
         keyboard.remove_hotkey(KEYBIND)
+        keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
         self.app.master.deiconify()    
         self.app.master.attributes("-topmost", True)
         self.app.master.attributes("-topmost", False)
         self.app.master.focus_force()  
     def hide_and_set_hotkey(self):
+        if self.hidden: return
         self.hidden = True
+        keyboard.remove_hotkey(KEYBIND)
         keyboard.add_hotkey(KEYBIND, self.hotkey_callback)
         self.app.master.withdraw()
         
@@ -97,6 +101,7 @@ class HomeWindow(Window):
             if sys.argv[1] == "withdraw" and self.app.first_open: 
                 self.hide_and_set_hotkey()
         self.app.first_open = False
+        keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
     def listen_for_result(self):
         if not self.running:
             if self.hidden: self.hotkey_callback()
@@ -113,6 +118,7 @@ class HomeWindow(Window):
 
     def on_end(self) -> None:
         self.app.master.after_cancel(self.after)
+        keyboard.remove_hotkey(KEYBIND)
         if self.running:
             self.running = False
             self.server.close()
