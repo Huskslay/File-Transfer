@@ -3,7 +3,7 @@ from tkinter import simpledialog
 
 from icon import ICONDATA
 
-class PortFileManager:
+class PortIconFileManager:
     def __init__(self) -> None:
         location = os.getenv('APPDATA')
         if location == None: location = self.path = os.path.join(os.path.expanduser("~"), "Documents", "FileTransferInfo")
@@ -43,3 +43,21 @@ class PortFileManager:
             f.write(ICONDATA)
     def icon_location(self) -> str:
         return os.path.join(self.path, self.iconname)
+    
+
+class FileData:
+    def __init__(self) -> None:
+        self.filename = ""
+        self.filesize = 0
+        self.data = b""
+
+    def set_size(self, size_in_bytes: bytes) -> None:
+        self.filesize = int.from_bytes(size_in_bytes, "big")
+
+    def save(self, folder_name: str) -> None:
+        if not os.path.exists(folder_name): os.makedirs(folder_name)
+        with open(os.path.join(folder_name, self.filename), "wb") as f:
+            f.write(self.data)
+
+    def __str__(self) -> str:
+        return f"{self.filename}: {self.filesize} -> <{self.data}>"
