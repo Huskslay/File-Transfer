@@ -422,7 +422,9 @@ class App:
 
         self.port_manager = PortFileManager()
         root.iconbitmap(self.port_manager.icon_location())
-        self.port_manager.port = self.port_manager.get_port()
+        self.port_manager.port = -1
+        while self.port_manager.port < 0:
+            self.port_manager.port = self.port_manager.get_port()
 
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
         
