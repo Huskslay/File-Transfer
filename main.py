@@ -44,7 +44,10 @@ class HomeWindow(Window):
     def hotkey_callback(self):
         self.hidden = False
         keyboard.remove_hotkey(KEYBIND)
-        self.app.master.deiconify()        
+        self.app.master.deiconify()    
+        self.app.master.attributes("-topmost", True)
+        self.app.master.attributes("-topmost", False)
+        self.app.master.focus_force()  
     def hide_and_set_hotkey(self):
         self.hidden = True
         keyboard.add_hotkey(KEYBIND, self.hotkey_callback)
