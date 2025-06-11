@@ -1,16 +1,17 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from typing import Union
+from typing import Union, TypeAlias
 from threading import Thread
 from collections.abc import Callable
 from tendo import singleton
+from infi.systray import SysTrayIcon
 
-import keyboard, os, sys, shutil, pyperclip, time
+import keyboard, os, sys, shutil, pyperclip, time, winreg
 
 from server import Server, Client, Communicator, SIZE, FORMAT
 from portfilemanager import PortFileManager
 
-
+KEYBIND = "ctrl+f10"
 
 class Window:
     def __init__(self) -> None:
@@ -42,16 +43,16 @@ class HomeWindow(Window):
 
     def hotkey_callback(self):
         self.hidden = False
-        self.app.master.deiconify()
-        keyboard.remove_hotkey("ctrl+f10")
+        keyboard.remove_hotkey(KEYBIND)
+        self.app.master.deiconify()        
     def hide_and_set_hotkey(self):
         self.hidden = True
+        keyboard.add_hotkey(KEYBIND, self.hotkey_callback)
         self.app.master.withdraw()
-        keyboard.add_hotkey("ctrl+f10", self.hotkey_callback)
         
     def change_port(self):
         new_port = self.app.port_manager.get_new_port()
-        if new_port < 0: return
+        if new_port < 0: return\
         self.app.port_manager.write_port(new_port)
         self.app.port_manager.port = new_port
         self.address_label.config(text=f"Listening on {self.server.ip}:{self.app.port_manager.port}")
@@ -66,7 +67,7 @@ class HomeWindow(Window):
         self.thread.start()
 
         label = ttk.Label(self.base_frame, text="Home Menu")
-        button = ttk.Button(self.base_frame, text="Hide window (ctr+f10 to return)", command=self.hide_and_set_hotkey, width=100)
+        button = ttk.Button(self.base_frame, text=f"Hide window ({KEYBIND} to return)", command=self.hide_and_set_hotkey, width=100)
 
         frame = ttk.Frame(self.base_frame, width=500, height=20)
         self.address_label = ttk.Label(frame, text=f"Listening on {self.server.ip}:{self.app.port_manager.port}")
@@ -206,11 +207,11 @@ class FileData:
         self.data = b""
 
     def set_size(self, size_in_bytes: bytes) -> None:
-        self.filesize = int.from_bytes(size_in_bytes, 'big')
+        self.filesize = int.from_bytes(size_in_bytes, "big")
 
     def save(self, folder_name: str) -> None:
         if not os.path.exists(folder_name): os.makedirs(folder_name)
-        with open(os.path.join(folder_name, self.filename), 'wb') as f:
+        with open(os.path.join(folder_name, self.filename), "wb") as f:
             f.write(self.data)
 
     def __str__(self) -> str:
@@ -280,7 +281,7 @@ class CommunicationWindow(Window):
 
         ttk.Label(self.base_frame, text="Sending size data...").pack()
         self.filesize = os.path.getsize(self.filepath)
-        file_size_in_bytes = self.filesize.to_bytes(8, 'big')
+        file_size_in_bytes = self.filesize.to_bytes(8, "big")
         self.client.send(file_size_in_bytes)
 
         self.thread = Thread(target=self.recv_thread, args=(self.client,))
@@ -381,7 +382,7 @@ class OptionDialog(tk.Toplevel):
         self.questions, self.options = questions, options
         self.transient(parent)
         self.protocol("WM_DELETE_WINDOW",self.cancel)
-        self.result = '_'
+        self.result = "_"
         self.geometry("+%d+%d" %(parent.winfo_x()+200,parent.winfo_y()+200))
         self.createWidgets()
         self.grab_set()
@@ -412,10 +413,16 @@ class App:
     def __init__(self, master: tk.Tk) -> None:
         self.master = master
         self.master.geometry("500x400")
+        self.master.title("File-Transfer")
         self.window: Union[Window, None] = None
         self.first_open: bool = True
 
+        self.systray: Union[SysTray, None] = None
+        self.has_quit = False
+
         self.port_manager = PortFileManager()
+        root.iconbitmap(self.port_manager.icon_location())
+        self.port_manager.port = self.port_manager.get_port()
 
         self.master.protocol("WM_DELETE_WINDOW", self.on_close)
         
@@ -424,33 +431,65 @@ class App:
         self.communication_window = CommunicationWindow()
         self.set_window(self.home_window)
 
+        self.after = self.master.after(100, self.quit_loop)
+    def quit_loop(self) -> None:
+        if not self.has_quit:
+            self.after = self.master.after(100, self.quit_loop)
+            return
+        self.quit()
+
     def on_close(self) -> None:
-        dlg = OptionDialog(self.master, "Quit", ["Do you want to quit or minimise", "(Unminimise with ctr+f10)"], ["Quit", "Minimise", "No"])
-        if dlg.result == "Quit":
-            if self.window != None: self.window.end()
-            self.master.destroy()
-        elif dlg.result == "Minimise":
-            if self.window != self.home_window: self.set_window(self.home_window)
-            self.home_window.hide_and_set_hotkey()
+        dlg = OptionDialog(self.master, "Quit", ["Do you want to quit or minimise", f"(Unminimise with {KEYBIND})"], ["Quit", "Minimise", "No"])
+        if dlg.result == "Quit": 
+            if self.systray != None: self.systray.sysTrayIcon.shutdown()
+            else: self.quit()
+        elif dlg.result == "Minimise": self.minimise()
+    def quit(self) -> None:
+        self.master.after_cancel(self.after)
+        self.has_quit = True
+        if self.window != None: self.window.end()
+        self.master.destroy()
+    def minimise(self) -> None:
+        if self.window != self.home_window: self.set_window(self.home_window)
+        self.home_window.hide_and_set_hotkey()
         
     def set_window(self, window: Window) -> None:
         if self.window != None: self.window.end()
         self.window = window
         self.window.go(self)
 
-def make_on_startup():
-    env = os.getenv('APPDATA')
-    if env == None: return
-
-    if getattr(sys, 'frozen', False): exe_path = sys.executable
+def make_on_startup() -> None:
+    if getattr(sys, "frozen", False): exe_path = sys.executable
     else: exe_path = os.path.abspath(__file__)
-
-    startup_folder = os.path.join(env, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
-    filename = "file_transfer.bat"
-    with open(os.path.join(startup_folder, filename), "w") as f:
-        f.truncate(0)
-        f.write(f"@echo off\necho Opening the file transfer program, use ctr+f10 to unhide it\nstart /d \"{os.path.dirname(os.path.abspath(exe_path))}\" {os.path.basename(os.path.abspath(exe_path))} withdraw")
+    REG_PATH = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+    name = "File-Transfer"
+    value = f'"{os.path.abspath(exe_path)}" withdraw'
+    try:    
+        winreg.CreateKey(winreg.HKEY_CURRENT_USER, REG_PATH)
+        registry_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, 
+                                        winreg.KEY_WRITE)
+        winreg.SetValueEx(registry_key, name, 0, winreg.REG_SZ, value)
+        winreg.CloseKey(registry_key)
+    except WindowsError: pass
     
+
+SysTrayMenuRecurse: TypeAlias = "SysTrayMenuType"
+SysTrayMenuType: TypeAlias = tuple[str, Union[str, None], Union[Callable[[SysTrayIcon], None], SysTrayMenuRecurse]]
+class SysTray:
+    def __init__(self, app: App) -> None:
+        self.app = app
+        self.sysTrayIcon = SysTrayIcon(self.app.port_manager.icon_location(), "File-Transfer", self.menu_options(), on_quit=self.quit, default_menu_index=1)
+        self.sysTrayIcon.start()
+        self.app.systray = self
+    def menu_options(self) -> tuple[SysTrayMenuType, ...]:
+        return tuple([("Hide/Show", None, self.hideshow)])
+    def hideshow(self, sysTrayIcon: SysTrayIcon) -> None:
+        if self.app.home_window.hidden: self.app.home_window.hotkey_callback()
+        else: self.app.minimise()
+    def quit(self, sysTrayIcon: SysTrayIcon) -> None:
+        if not self.app.has_quit: self.app.has_quit = True
+        
+
 
 if __name__ == "__main__":
     make_on_startup()
@@ -462,11 +501,11 @@ if __name__ == "__main__":
     except:
         fail = True
         ttk.Label(root, text="Warning, instance already open!").pack()
-        ttk.Label(root, text="If it is hidden, use ctr+f10 to show it").pack()
+        ttk.Label(root, text=f"If it is hidden, use {KEYBIND} to show it").pack()
         ttk.Button(root, text="Close", command=lambda: root.destroy()).pack()
         root.mainloop()
     if not fail:
-        App(root)
+        SysTray(App(root))
         root.mainloop()
 
     
