@@ -5,7 +5,7 @@ from threading import Thread
 from collections.abc import Callable
 from tendo import singleton
 
-import keyboard, os, sys, shutil, pyperclip, time
+import keyboard, os, sys, shutil, pyperclip, time, winreg
 
 from server import Server, Client, Communicator, SIZE, FORMAT
 from portfilemanager import PortFileManager
@@ -438,18 +438,19 @@ class App:
         self.window = window
         self.window.go(self)
 
-def make_on_startup():
-    env = os.getenv('APPDATA')
-    if env == None: return
-
+def make_on_startup() -> None:
     if getattr(sys, 'frozen', False): exe_path = sys.executable
     else: exe_path = os.path.abspath(__file__)
-
-    startup_folder = os.path.join(env, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
-    filename = "file_transfer.bat"
-    with open(os.path.join(startup_folder, filename), "w") as f:
-        f.truncate(0)
-        f.write(f"@echo off\necho Opening the file transfer program, use ctr+f10 to unhide it\nstart /d \"{os.path.dirname(os.path.abspath(exe_path))}\" {os.path.basename(os.path.abspath(exe_path))} withdraw")
+    REG_PATH = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Run"
+    name = "File-Transfer"
+    value = f'"{os.path.abspath(exe_path)}" withdraw'
+    try:
+        winreg.CreateKey(winreg.HKEY_CURRENT_USER, REG_PATH)
+        registry_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, 
+                                        winreg.KEY_WRITE)
+        winreg.SetValueEx(registry_key, name, 0, winreg.REG_SZ, value)
+        winreg.CloseKey(registry_key)
+    except WindowsError: pass
     
 
 if __name__ == "__main__":
