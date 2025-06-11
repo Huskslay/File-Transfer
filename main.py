@@ -12,6 +12,7 @@ from server import Server, Client, Communicator, SIZE, FORMAT
 from portfilemanager import PortFileManager
 
 KEYBIND = "ctrl+f10"
+VERSION = "v1.1.1"
 
 class Window:
     def __init__(self) -> None:
@@ -100,13 +101,13 @@ class HomeWindow(Window):
         label = ttk.Button(self.base_frame, text="Stop server and send file",
                            command=lambda: self.app.set_window(self.app.send_files_window), width=100)
         label.pack()
-        self.after = self.app.master.after(100, self.listen_for_result)
 
         if len(sys.argv) > 1: 
             if sys.argv[1] == "withdraw" and self.app.first_open: 
                 self.hide_and_set_hotkey()
         self.app.first_open = False
         keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
+        self.after = self.app.master.after(100, self.listen_for_result)
     def listen_for_result(self):
         if not self.running:
             if self.hidden: self.hotkey_callback()
@@ -430,6 +431,8 @@ class App:
         self.master.title("File-Transfer")
         self.window: Union[Window, None] = None
         self.first_open: bool = True
+
+        ttk.Label(self.master, text=VERSION).pack(side=tk.BOTTOM)
 
         self.systray: Union[SysTray, None] = None
         self.has_quit = False
