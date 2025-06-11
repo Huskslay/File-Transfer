@@ -1,37 +1,121 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, simpledialog
-from collections.abc import Callable
+from tkinter import ttk, filedialog, messagebox
+from typing import Union
 from threading import Thread
-import os, socket, shutil
+from collections.abc import Callable
+from tendo import singleton
 
-SIZE = 1048576
-BYTEORDER_LENGTH = 8
-FORMAT = "utf-8"
+import keyboard, os, sys, shutil, pyperclip, time
 
-def get_int_from_window(title: str, prompt: str) -> int:
-    root = tk.Tk()
-    root.withdraw()
+from server import Server, Client, Communicator, SIZE, FORMAT
+from portfilemanager import PortFileManager
 
-    user_input = simpledialog.askinteger(title, prompt)
 
-    if user_input is not None:
-        return user_input
-    return -1
 
-class App:
-    def __init__(self, master: tk.Tk) -> None:
-        self.master = master
-        self.master.geometry("500x300")
-        self.data = ("", "", 0)
-        self.set_window(self.window_main)
+class Window:
+    def __init__(self) -> None:
+        self.frames: list[tk.Frame] = []
+        self.base_frame: ttk.Frame
+        self.app: App
+
+    def go(self, app: "App") -> None:
+        self.app = app
+        self.base_frame = ttk.Frame(app.master, width=500, height=300)
+        self.setup()
+        self.base_frame.pack()
+    def setup(self) -> None:
+        pass
+
+    def end(self) -> None:
+        self.on_end()
+        for widget in self.base_frame.winfo_children():
+            widget.destroy()
+        self.base_frame.pack_forget()
+    def on_end(self) -> None:
+        pass
+
+
+class HomeWindow(Window):
+    def __init__(self) -> None:
+        self.hidden = False
+        super().__init__()
+
+    def hotkey_callback(self):
+        self.hidden = False
+        self.app.master.deiconify()
+        keyboard.remove_hotkey("ctrl+f10")
+    def hide_and_set_hotkey(self):
+        self.hidden = True
+        self.app.master.withdraw()
+        keyboard.add_hotkey("ctrl+f10", self.hotkey_callback)
+        
+    def change_port(self):
+        new_port = self.app.port_manager.get_new_port()
+        if new_port < 0: return
+        self.app.port_manager.write_port(new_port)
+        self.app.port_manager.port = new_port
+        self.address_label.config(text=f"Listening on {self.server.ip}:{self.app.port_manager.port}")
+        self.server.close()
+
+    def setup(self) -> None:
+        if os.path.exists("Temp"): shutil.rmtree("Temp")
+
+        self.running = True
+        self.server = Server()
+        self.thread = Thread(target=self.server_loop)
+        self.thread.start()
+
+        label = ttk.Label(self.base_frame, text="Home Menu")
+        button = ttk.Button(self.base_frame, text="Hide window (ctr+f10 to return)", command=self.hide_and_set_hotkey, width=100)
+
+        frame = ttk.Frame(self.base_frame, width=500, height=20)
+        self.address_label = ttk.Label(frame, text=f"Listening on {self.server.ip}:{self.app.port_manager.port}")
+        button2 = ttk.Button(frame, text="Copy Ip:Port", command=lambda: pyperclip.copy(f"{self.server.ip}:{self.app.port_manager.port}"), width=20)
+        button3 = ttk.Button(frame, text="Change Port", command=self.change_port, width=20)
+        self.address_label.pack(side=tk.LEFT, padx=25)
+        button2.pack(side=tk.LEFT)
+        button3.pack(side=tk.LEFT)
+
+        label.pack()
+        button.pack()
+        frame.pack()
+
+        canvas = tk.Canvas(self.base_frame, height=20)
+        canvas.create_line(0, 10, 500, 10)
+        canvas.pack(fill=tk.BOTH)
+
+        label = ttk.Button(self.base_frame, text="Stop server and send file",
+                           command=lambda: self.app.set_window(self.app.send_files_window), width=100)
+        label.pack()
+        self.after = self.app.master.after(100, self.listen_for_result)
+
+        if len(sys.argv) > 1: 
+            if sys.argv[1] == "withdraw" and self.app.first_open: 
+                self.hide_and_set_hotkey()
+        self.app.first_open = False
+    def listen_for_result(self):
+        if not self.running:
+            if self.hidden: self.hotkey_callback()
+            self.app.set_window(self.app.communication_window)
+            self.app.communication_window.recieve_data_start(self.server)
+        else: self.after = self.app.master.after(100, self.listen_for_result)
     
-    def set_window(self, window: Callable[[], None]) -> None:
-        for i in self.master.winfo_children():
-            i.destroy()
-        self.frame1 = tk.Frame(self.master, width=500, height=300)
-        self.frame1.pack()
-        window()
+    def server_loop(self) -> None:
+        while self.running:
+            try:
+                self.server.setup(self.app.port_manager.port)
+                self.running = False
+            except: pass
 
+    def on_end(self) -> None:
+        self.app.master.after_cancel(self.after)
+        if self.running:
+            self.running = False
+            self.server.close()
+            self.thread.join()
+
+
+class ChooseFilesWindow(Window):
     def upload(self, label: ttk.Label, go_button: ttk.Button, type: int) -> None:
         if type == 1: name = filedialog.askopenfilename(filetypes=[("Zip file", "*.zip")])
         elif type == 2: name = filedialog.askdirectory()
@@ -45,60 +129,44 @@ class App:
             ip, port = ip_port_text[0], int(ip_port_text[1])
             filepath = label["text"]
             filename = os.path.basename(filepath)
-            if type == 2:
+            if type == 2: # If folder, make zip folder
                 if not os.path.exists("Temp"): os.makedirs("Temp")
-                shutil.make_archive(os.path.join("Temp","Data"), "zip", os.path.dirname(filepath), filename)
-                filepath = os.path.join("Temp","Data.zip")
+                shutil.make_archive(os.path.join("Temp",filename), "zip", os.path.dirname(filepath), filename)
+                filepath = os.path.join("Temp",filename+".zip")
             if os.path.exists(filepath) and len(ip) >= 9 and port >= 0:
-                self.data = (filepath, ip, port)
-                self.set_window(self.window_send_zip_file_active)
+                self.app.set_window(self.app.communication_window)
+                self.app.communication_window.send_data_start(filepath, ip, port)
                 return
         except: pass
         warning_label.config(text=
 "An issue occured with your inputs!\nExample with 127.0.0.1 as example ip and\n5555 as example port -> 127.0.0.1:5555")
 
-    def delete_temp(self) -> None:
-        if os.path.exists(os.path.join("Temp","Data.zip")): 
-            os.remove(os.path.join("Temp","Data.zip"))
-        if os.path.exists("Temp"): os.removedirs("Temp")
 
-    def quit_socket(self) -> None:
-        try: self.socket.close()
-        except: pass
-        self.set_window(self.window_main)
+    def setup(self) -> None:
+        label = ttk.Label(self.base_frame, text="Send Files Menu")
+        button = ttk.Button(self.base_frame, text="Back to home", 
+                            command=lambda: self.app.set_window(self.app.home_window), width=100)
 
+        label.pack()
+        button.pack()
 
-
-    def window_main(self) -> None:
-        self.delete_temp()
-
-        ttk.Label(self.frame1, text="Main").pack()
-        ttk.Button(self.frame1, text="Send zip file", 
-                    command=lambda: self.set_window(self.window_send_zip_file), 
-                    width=100).pack()
-        ttk.Button(self.frame1, text="Recieve zip file", 
-                    command=lambda: self.set_window(self.window_recieve_zip_file), 
-                    width=100).pack()
-
-
-    def window_send_zip_file(self) -> None:
-        ttk.Label(self.frame1, text="Send Zip File").pack()
-        ttk.Button(self.frame1, text="Go to Main", 
-                    command=lambda: self.set_window(self.window_main),
-                    width=100).pack()
-        canvas = tk.Canvas(self.frame1, height=20)
+        canvas = tk.Canvas(self.base_frame, height=20)
         canvas.create_line(0, 10, 500, 10)
         canvas.pack(fill=tk.BOTH)
 
-        select_frame = tk.Frame(self.frame1, width=500, height=100)
-        ip_port_frame = tk.Frame(self.frame1, width=500, height=100)
+        label = ttk.Label(self.base_frame, text="Send Zip/Folder/File?")
+        label.pack()
+
+
+        select_frame = tk.Frame(self.base_frame, width=500, height=100)
+        ip_port_frame = tk.Frame(self.base_frame, width=500, height=100)
         warning_label = ttk.Label(ip_port_frame, text="Enter Ip:port and choose file\n\n")
         ip_port = tk.Text(ip_port_frame, width=20, height=1, wrap="none")
         ip_port_label = ttk.Label(ip_port_frame, text="Ip:port ")
 
-        lower_frame = tk.Frame(self.frame1, width=500, height=100, pady=5)
+        lower_frame = tk.Frame(self.base_frame, width=500, height=100, pady=5)
         file_label = ttk.Label(lower_frame, text="No file selected")
-        go_button = ttk.Button(self.frame1, text="Go!",
+        go_button = ttk.Button(self.base_frame, text="Go!",
                    command=lambda: self.send(file_label, ip_port, warning_label, var.get()),
                     width=10, state="disabled", padding=10)
         upload_button = ttk.Button(lower_frame, text="Upload Zip",
@@ -113,11 +181,11 @@ class App:
         var = tk.IntVar(None, 1)
         R1 = tk.Radiobutton(select_frame, text="Zip file", variable=var, value=1, command=sel)
         R1.pack(anchor=tk.W,side=tk.LEFT)
-        R2 = tk.Radiobutton(select_frame, text="Folder", variable=var, value=2, command=sel)
+        R2 = tk.Radiobutton(select_frame, text="Folder (to zip)", variable=var, value=2, command=sel)
         R2.pack(anchor=tk.W,side=tk.LEFT)
         R3 = tk.Radiobutton(select_frame, text="File", variable=var, value=3, command=sel)
         R3.pack(anchor=tk.W,side=tk.LEFT)
-        select_frame.pack(pady=2)
+        select_frame.pack(pady=10)
 
         warning_label.pack()
         ip_port_label.pack(side=tk.LEFT)
@@ -127,114 +195,280 @@ class App:
         file_label.pack(side=tk.LEFT)
         lower_frame.pack()
         go_button.pack()
-    def window_send_zip_file_active(self) -> None:
-        ttk.Label(self.frame1, text="Send Zip File").pack()
-        return_button = ttk.Button(self.frame1, text="Go to Main", 
-                    command=self.quit_socket,
-                    width=100)
-        return_button.pack()
-        canvas = tk.Canvas(self.frame1, height=20)
+
+    def on_end(self) -> None:
+        pass
+
+class FileData:
+    def __init__(self) -> None:
+        self.filename = ""
+        self.filesize = 0
+        self.data = b""
+
+    def set_size(self, size_in_bytes: bytes) -> None:
+        self.filesize = int.from_bytes(size_in_bytes, 'big')
+
+    def save(self, folder_name: str) -> None:
+        if not os.path.exists(folder_name): os.makedirs(folder_name)
+        with open(os.path.join(folder_name, self.filename), 'wb') as f:
+            f.write(self.data)
+
+    def __str__(self) -> str:
+        return f"{self.filename}: {self.filesize} -> <{self.data}>"
+
+class CommunicationWindow(Window):
+    def set_error(self, error: str):
+        for widget in self.base_frame.winfo_children():
+            widget.destroy()
+        ttk.Label(self.base_frame, text="Error!").pack()
+        ttk.Label(self.base_frame, text=error).pack()
+        self.set_way_back(None)
+    def set_way_back(self, run: Union[Callable[[],None], None]):
+        if run != None: run()
+        ttk.Button(self.base_frame, text="Back to home", command=lambda: self.app.set_window(self.app.home_window)).pack()
+
+    def recv_thread(self, communicator: Communicator) -> None:
+        self.data = communicator.recieve()
+    def file_thread_client(self, client: Client) -> None:
+        with open(self.filepath, "rb") as f:
+            while self.filesize > 0:
+                reading = min(SIZE // 3, self.filesize)
+                self.filesize -= reading
+                client.send(f.read(reading))
+                self.data = client.recieve()
+    def file_thread_server(self, server: Server) -> None:
+        to_read = self.file_data.filesize
+        while to_read > 0:
+            recieved = server.recieve()
+            self.file_data.data += recieved
+            to_read -= len(recieved)
+            server.send(b"c")
+
+    def send_data_start(self, filepath: str, ip: str, port: int) -> None:
+        ttk.Label(self.base_frame, text="Sending Data!").pack()
+
+        canvas = tk.Canvas(self.base_frame, height=20)
         canvas.create_line(0, 10, 500, 10)
         canvas.pack(fill=tk.BOTH)
 
-        filepath, ip, port = self.data
+        if not os.path.exists(filepath):
+            self.set_error(f"File '{filepath}' does not exist")
+            return
+        self.filepath = filepath
+        self.filename = os.path.basename(filepath)
         try:
-            filename = os.path.basename(filepath)
-            ttk.Label(self.frame1, text="Sending Zip File").pack()
-            ttk.Label(self.frame1, text=filepath).pack()
+            self.client = Client()
+            self.client.connect(ip, port)
+        except:
+            self.set_error("Could not connect and exchange with server")
+            return
+        
+        ttk.Label(self.base_frame, text="Waiting for confirmation...").pack()
+        self.thread = Thread(target=self.recv_thread, args=(self.client,))
+        self.thread.start()
+        self.app.master.after(100, self.send_data_size)
+    def send_data_size(self) -> None:
+        if self.thread.is_alive():
+            self.app.master.after(100, self.send_data_size)
+            return
+        
+        if self.data == b"n":
+            ttk.Label(self.base_frame, text="Connection refused.").pack()
+            self.set_way_back(self.client.close)
+            return
+        ttk.Label(self.base_frame, text="Connection accepted.").pack()
 
-            self.socket = socket.socket()
-            ttk.Label(self.frame1, text=f"Connecting to {ip}:{port}").pack()
-            self.socket.connect((ip, port))
-            return_button.config(state="disabled")
-            ttk.Label(self.frame1, text=f"Connected! Preparing to send {filename}").pack()
+        ttk.Label(self.base_frame, text="Sending size data...").pack()
+        self.filesize = os.path.getsize(self.filepath)
+        file_size_in_bytes = self.filesize.to_bytes(8, 'big')
+        self.client.send(file_size_in_bytes)
 
-            ttk.Label(self.frame1, text="Sending file size and name").pack()
-            file_size = os.path.getsize(filepath)
-            file_size_in_bytes = file_size.to_bytes(BYTEORDER_LENGTH, 'big')
-            self.socket.send(file_size_in_bytes)
-            msg = self.socket.recv(SIZE).decode(FORMAT)
-            self.socket.send(filename.encode(FORMAT))           
-            msg = self.socket.recv(SIZE).decode(FORMAT)
+        self.thread = Thread(target=self.recv_thread, args=(self.client,))
+        self.thread.start()
+        self.app.master.after(100, self.send_data_name)
+    def send_data_name(self) -> None:
+        if self.thread.is_alive():
+            self.app.master.after(100, self.send_data_name)
+            return
+        
+        ttk.Label(self.base_frame, text=f"Sending name data `{self.filename}` ...").pack()
+        self.client.send_str(self.filename)
 
-            ttk.Label(self.frame1, text=f"Sending data...").pack()
-            with open(filepath,'rb') as f1:
-                self.socket.send(f1.read())
-            msg = self.socket.recv(SIZE).decode(FORMAT)
-            ttk.Label(self.frame1, text=f"Finished!").pack()
+        ttk.Label(self.base_frame, text="Sending data...").pack()
+        self.thread = Thread(target=self.file_thread_client, args=(self.client,))
+        self.thread.start()
+        self.app.master.after(100, self.send_data_data)
+    def send_data_data(self) -> None:
+        if self.thread.is_alive():
+            self.app.master.after(100, self.send_data_data)
+            return
+        
+        ttk.Label(self.base_frame, text="Data sent!").pack()
+        if os.path.exists("Temp"): shutil.rmtree("Temp")
+        self.set_way_back(self.client.close)
 
-            self.socket.close()
-            return_button.config(state="normal")
-        except: pass
-        self.delete_temp()
         
 
-    def window_recieve_zip_file(self) -> None:
-        port = get_int_from_window("Choose port", "Port: ")
-        if port <= 0: 
-            self.set_window(self.window_main)
+
+    def recieve_data_start(self, server: Server):
+        ttk.Label(self.base_frame, text="Recieving Data!").pack()
+        
+        canvas = tk.Canvas(self.base_frame, height=20)
+        canvas.create_line(0, 10, 500, 10)
+        canvas.pack(fill=tk.BOTH)
+
+        ttk.Label(self.base_frame, text="Selecting choice...").pack()
+        time.sleep(0.1)
+        if not messagebox.askokcancel("Accept", f"Accept from {server.returnAddress[0]}:{server.returnAddress[1]}?"):
+            server.send(b"n")
+            self.set_way_back(server.close)
             return
+        server.send(b"y")
+        self.server = server
+        self.file_data = FileData()
 
-        ttk.Label(self.frame1, text="Recieve Zip File").pack()
-        return_button = ttk.Button(self.frame1, text="Go to Main", 
-                    command=self.quit_socket,
-                    width=100)
-        return_button.pack()
-        thread = Thread(target=self.window_recieve_zip_file_active, args=(port,return_button,))
+        ttk.Label(self.base_frame, text="Getting size data...").pack()
+        self.thread = Thread(target=self.recv_thread, args=(self.server,))
+        self.thread.start()
+        self.app.master.after(100, self.recieve_data_size)
+    def recieve_data_size(self):
+        if self.thread.is_alive():
+            self.app.master.after(100, self.recieve_data_size)
+            return
+        
+        self.file_data.set_size(self.data)
+        self.server.send(b"c")
 
-        self.canvas = tk.Canvas(self.frame1, height=20)
-        self.canvas.create_line(0, 10, 500, 10)
-        self.canvas.pack(fill=tk.BOTH)
+        ttk.Label(self.base_frame, text="Getting name data...").pack()
+        self.thread = Thread(target=self.recv_thread, args=(self.server,))
+        self.thread.start()
+        self.app.master.after(100, self.recieve_data_name)
+    def recieve_data_name(self):
+        if self.thread.is_alive():
+            self.app.master.after(100, self.recieve_data_name)
+            return
+        
+        self.file_data.filename = self.data.decode(FORMAT)
+        ttk.Label(self.base_frame, text=f"Recieved name: `{self.file_data.filename}`").pack()
+        self.server.send(b"c")
 
-        thread.start()
-    def window_recieve_zip_file_active(self, port: int, return_button: ttk.Button) -> None:
-        try:
-            ip = socket.gethostbyname(socket.gethostname())
-            self.socket = socket.socket()
-            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        ttk.Label(self.base_frame, text="Getting file data...").pack()
+        self.thread = Thread(target=self.file_thread_server, args=(self.server,))
+        self.thread.start()
+        self.app.master.after(100, self.recieve_data_data)
+    def recieve_data_data(self) -> None:
+        if self.thread.is_alive():
+            self.app.master.after(100, self.recieve_data_data)
+            return
+        
+        ttk.Label(self.base_frame, text="Saving data...").pack()
+        self.file_data.save("Recieved")
+        ttk.Label(self.base_frame, text="Finished!").pack()
+        self.set_way_back(self.server.close)
 
-            self.socket.bind((ip, port))
-            ttk.Label(self.frame1, text=f"Ipv4: {ip}:{port}").pack()
-            ttk.Label(self.frame1, text="Waiting for 1 connection...").pack()
-            self.socket.listen(1)
-
-            clientSocket, returnAddress = self.socket.accept()
-            return_button.config(state="disabled")
-            ttk.Label(self.frame1, text=f"Connection from: {returnAddress[0]}:{returnAddress[1]}").pack()
-
-            ttk.Label(self.frame1, text="Getting preliminary data...").pack()
-            file_size_in_bytes = clientSocket.recv(BYTEORDER_LENGTH)
-            file_size = int.from_bytes(file_size_in_bytes, 'big')
-            clientSocket.send("File size received.".encode(FORMAT))
-            filename = clientSocket.recv(SIZE).decode(FORMAT)
-            clientSocket.send("Filename received.".encode(FORMAT))
-
-            progress_label = ttk.Label(self.frame1, text=f"Getting file data for {filename}...0%")
-            progress_label.pack()
-            packet = b""
-            progress: float = 0
-            while len(packet) < file_size:
-                if len(packet)/file_size > progress:
-                    progress_label.config(text=f"Getting file data for {filename}...{round(len(packet) * 100 / file_size)}%")
-                    progress += 0.01
-                if(file_size - len(packet)) > SIZE: buffer = clientSocket.recv(SIZE)
-                else: buffer = clientSocket.recv(file_size - len(packet))
-                if not buffer: raise Exception("Incomplete file received")
-                packet += buffer
-
-            ttk.Label(self.frame1, text=f"Writing {filename}").pack()
-            if not os.path.exists("Recieved"): os.makedirs("Recieved")
-            with open(os.path.join("Recieved", filename), 'wb') as f:
-                f.write(packet)
-                
-            clientSocket.send("File data received".encode(FORMAT))
-            clientSocket.close()
-            self.socket.close()
-            
-            return_button.config(state="normal")
-            ttk.Label(self.frame1, text=f"Finished!").pack()
+    def on_end(self) -> None:
+        try: self.server.close()
+        except: pass
+        try: self.client.close()
         except: pass
 
-root = tk.Tk()
-App(root)
-root.mainloop()
+
+
+class OptionDialog(tk.Toplevel):
+    def __init__(self, parent: tk.Tk, title: str, questions: list[str], options: list[str]):
+        tk.Toplevel.__init__(self,parent)
+        self.title(title)
+        self.questions, self.options = questions, options
+        self.transient(parent)
+        self.protocol("WM_DELETE_WINDOW",self.cancel)
+        self.result = '_'
+        self.geometry("+%d+%d" %(parent.winfo_x()+200,parent.winfo_y()+200))
+        self.createWidgets()
+        self.grab_set()
+        self.wait_window()
+    def createWidgets(self):
+        row = 1
+        for question in self.questions:
+            frmQuestion = tk.Frame(self)
+            tk.Label(frmQuestion,text=question).grid()
+            frmQuestion.grid(row=row)
+            row += 1
+        frmButtons = tk.Frame(self)
+        frmButtons.grid(row=row)
+        column = 0
+        for option in self.options:
+            btn = tk.Button(frmButtons,text=option,command=lambda x=option:self.setOption(x))
+            btn.grid(column=column,row=0)
+            column += 1 
+    def setOption(self,optionSelected):
+        self.result = optionSelected
+        self.destroy()
+    def cancel(self):
+        self.result = None
+        self.destroy()
+
+
+class App:
+    def __init__(self, master: tk.Tk) -> None:
+        self.master = master
+        self.master.geometry("500x400")
+        self.window: Union[Window, None] = None
+        self.first_open: bool = True
+
+        self.port_manager = PortFileManager()
+
+        self.master.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        self.home_window = HomeWindow()
+        self.send_files_window = ChooseFilesWindow()
+        self.communication_window = CommunicationWindow()
+        self.set_window(self.home_window)
+
+    def on_close(self) -> None:
+        dlg = OptionDialog(self.master, "Quit", ["Do you want to quit or minimise", "(Unminimise with ctr+f10)"], ["Quit", "Minimise", "No"])
+        if dlg.result == "Quit":
+            if self.window != None: self.window.end()
+            self.master.destroy()
+        elif dlg.result == "Minimise":
+            if self.window != self.home_window: self.set_window(self.home_window)
+            self.home_window.hide_and_set_hotkey()
+        
+    def set_window(self, window: Window) -> None:
+        if self.window != None: self.window.end()
+        self.window = window
+        self.window.go(self)
+
+def make_on_startup():
+    env = os.getenv('APPDATA')
+    if env == None: return
+
+    if getattr(sys, 'frozen', False): exe_path = sys.executable
+    else: exe_path = os.path.abspath(__file__)
+
+    startup_folder = os.path.join(env, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+    filename = "file_transfer.bat"
+    with open(os.path.join(startup_folder, filename), "w") as f:
+        f.truncate(0)
+        f.write(f"@echo off\necho Opening the file transfer program, use ctr+f10 to unhide it\nstart /d \"{os.path.dirname(os.path.abspath(exe_path))}\" {os.path.basename(os.path.abspath(exe_path))} withdraw")
+    
+
+if __name__ == "__main__":
+    make_on_startup()
+
+    root = tk.Tk()
+
+    fail = False
+    try: me = singleton.SingleInstance()
+    except:
+        fail = True
+        ttk.Label(root, text="Warning, instance already open!").pack()
+        ttk.Label(root, text="If it is hidden, use ctr+f10 to show it").pack()
+        ttk.Button(root, text="Close", command=lambda: root.destroy()).pack()
+        root.mainloop()
+    if not fail:
+        App(root)
+        root.mainloop()
+
+    
+
+   
