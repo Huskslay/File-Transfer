@@ -3,7 +3,9 @@ from tkinter import simpledialog
 
 class PortFileManager:
     def __init__(self) -> None:
-        self.path = os.path.join(os.path.expanduser("~"), "Documents", "FileTransferInfo")
+        location = os.getenv('APPDATA')
+        if location == None: location = self.path = os.path.join(os.path.expanduser("~"), "Documents", "FileTransferInfo")
+        else: self.path = os.path.join(location, "FileTransferInfo")
         self.filename = "data.txt"
         self.port = self.get_port()
 
