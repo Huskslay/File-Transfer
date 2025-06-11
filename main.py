@@ -51,23 +51,28 @@ class HomeWindow(Window):
         self.app.master.attributes("-topmost", False)
         self.app.master.focus_force()  
     def hide_and_set_hotkey(self):
-        if self.hidden: return
+        if self.hidden or not self.can_hide: return
         self.hidden = True
         keyboard.remove_hotkey(KEYBIND)
         keyboard.add_hotkey(KEYBIND, self.hotkey_callback)
         self.app.master.withdraw()
         
     def change_port(self):
+        self.can_hide = False
         new_port = self.app.port_manager.get_new_port()
-        if new_port < 0: return\
+        if new_port < 0: 
+            self.can_hide = True
+            return
         self.app.port_manager.write_port(new_port)
         self.app.port_manager.port = new_port
         self.address_label.config(text=f"Listening on {self.server.ip}:{self.app.port_manager.port}")
         self.server.close()
+        self.can_hide = True
 
     def setup(self) -> None:
         if os.path.exists("Temp"): shutil.rmtree("Temp")
 
+        self.can_hide = True
         self.running = True
         self.server = Server()
         self.thread = Thread(target=self.server_loop)
