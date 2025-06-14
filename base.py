@@ -81,7 +81,7 @@ class BaseCommunicationWindow(Window):
         pass
     def file_thread_client(self, client: Client) -> None:
         pass
-    def file_thread_server(self, server: Server) -> None:
+    def file_thread_server(self, server: Server, label: ttk.Label) -> None:
         pass
 
     def send_data_start(self, filepath: str, ip: str, port: int) -> None:
