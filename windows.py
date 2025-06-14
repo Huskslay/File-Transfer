@@ -201,6 +201,17 @@ class CommunicationWindow(BaseCommunicationWindow):
     def set_way_back(self, run: Union[Callable[[],None], None]):
         if run != None: run()
         ttk.Button(self.base_frame, text="Back to home", command=lambda: self.app.set_window(self.app.home_window)).pack()
+        self.counter = 10
+        self.back_label = ttk.Label(self.base_frame, text=f"Going back in {self.counter} seconds...")
+        self.back_label.pack()
+        self.back_after = self.app.master.after(1000, self.go_back_loop)
+    def go_back_loop(self):
+        self.counter -= 1
+        if self.counter >= 0:
+            self.back_label.config(text=f"Going back in {self.counter} seconds...")
+            self.back_after = self.app.master.after(1000, self.go_back_loop)
+            return
+        self.app.set_window(self.app.home_window)
 
     def recv_thread(self, communicator: Communicator) -> None:
         self.data = communicator.recieve()
@@ -341,7 +352,12 @@ class CommunicationWindow(BaseCommunicationWindow):
         ttk.Label(self.base_frame, text="Finished!").pack()
         self.set_way_back(self.server.close)
 
+    def setup(self) -> None:
+        self.back_after = ""
+
     def on_end(self) -> None:
+        if self.back_after != "":
+            self.app.master.after_cancel(self.back_after)
         try: self.server.close()
         except: pass
         try: self.client.close()
