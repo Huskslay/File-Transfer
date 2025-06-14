@@ -108,9 +108,8 @@ class HomeWindow(BaseHomeWindow):
 
 class ChooseFilesWindow(BaseChooseFilesWindow):
     def upload(self, label: ttk.Label, go_button: ttk.Button, type: int) -> None:
-        if type == 1: name = filedialog.askopenfilename(filetypes=[("Zip file", "*.zip")])
-        elif type == 2: name = filedialog.askdirectory()
-        else: name = filedialog.askopenfilename()
+        if type == 0: name = filedialog.askopenfilename()
+        else: name = filedialog.askdirectory()
         if name == "": return
         go_button.config(state="normal")
         label.config(text=name)
@@ -120,7 +119,7 @@ class ChooseFilesWindow(BaseChooseFilesWindow):
             ip, port = ip_port_text[0], int(ip_port_text[1])
             filepath = label["text"]
             filename = os.path.basename(filepath)
-            if type == 2: # If folder, make zip folder
+            if type == 1: # If folder, make zip folder
                 if not os.path.exists("Temp"): os.makedirs("Temp")
                 shutil.make_archive(os.path.join("Temp",filename), "zip", os.path.dirname(filepath), filename)
                 filepath = os.path.join("Temp",filename+".zip")
@@ -145,7 +144,7 @@ class ChooseFilesWindow(BaseChooseFilesWindow):
         canvas.create_line(0, 10, 500, 10)
         canvas.pack(fill=tk.BOTH)
 
-        label = ttk.Label(self.base_frame, text="Send Zip/Folder/File?")
+        label = ttk.Label(self.base_frame, text="Send File/Folder?")
         label.pack()
 
 
@@ -160,22 +159,20 @@ class ChooseFilesWindow(BaseChooseFilesWindow):
         go_button = ttk.Button(self.base_frame, text="Go!",
                    command=lambda: self.send(file_label, ip_port, warning_label, var.get()),
                     width=10, state="disabled", padding=10)
-        upload_button = ttk.Button(lower_frame, text="Upload Zip",
+        upload_button = ttk.Button(lower_frame, text="Upload File",
                         command=lambda: self.upload(file_label, go_button, var.get()),
                         width=15)
 
         def sel() -> None:
             val = var.get()
-            file_label.config(text="No file selected")
+            file_label.config(text=f"No {"file" if val==0 else "folder"} selected")
             go_button.config(state="disabled")
-            upload_button.config(text=f"Upload {"Zip" if val==1 else "Folder" if val==2 else "File"}")
-        var = tk.IntVar(None, 1)
-        R1 = tk.Radiobutton(select_frame, text="Zip file", variable=var, value=1, command=sel)
+            upload_button.config(text=f"Upload {"File" if val==0 else "Folder"}")
+        var = tk.IntVar(None, 0)
+        R1 = tk.Radiobutton(select_frame, text="File", variable=var, value=0, command=sel)
         R1.pack(anchor=tk.W,side=tk.LEFT)
-        R2 = tk.Radiobutton(select_frame, text="Folder (to zip)", variable=var, value=2, command=sel)
+        R2 = tk.Radiobutton(select_frame, text="Folder (to zip)", variable=var, value=1, command=sel)
         R2.pack(anchor=tk.W,side=tk.LEFT)
-        R3 = tk.Radiobutton(select_frame, text="File", variable=var, value=3, command=sel)
-        R3.pack(anchor=tk.W,side=tk.LEFT)
         select_frame.pack(pady=10)
 
         warning_label.pack()
@@ -353,6 +350,7 @@ class CommunicationWindow(BaseCommunicationWindow):
         ttk.Label(self.base_frame, text="Saving data...").pack()
         self.file_data.save("Recieved")
         ttk.Label(self.base_frame, text="Finished!").pack()
+        os.startfile("Recieved")
         self.set_way_back(self.server.close)
 
     def setup(self) -> None:
