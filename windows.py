@@ -34,7 +34,9 @@ class HomeWindow(BaseHomeWindow):
     def change_port(self) -> None:
         self.can_hide = False
         new_port = self.app.port_manager.get_new_port()
-        if new_port < 0: 
+        while not self.app.port_manager.port_allowed(new_port): 
+            new_port = self.app.port_manager.get_new_port(f"Port `{new_port}` not allowed")
+        if new_port == None: 
             self.can_hide = True
             return
         self.app.port_manager.write_port(new_port)

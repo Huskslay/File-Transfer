@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from tendo import singleton
+from Socket_Singleton import Socket_Singleton
 
 import winreg, sys, os
 
@@ -26,7 +26,7 @@ def make_on_startup() -> None:
         
 def is_only_version() -> bool:
     try:
-        singleton.SingleInstance()
+        Socket_Singleton(address="127.0.0.1", port=1337, timeout=0, client=True, strict=True)
         return True
     except: return False
 
@@ -39,7 +39,6 @@ if __name__ == "__main__":
         SysTray(App(root, VERSION, KEYBIND))
         root.mainloop()
     else:
-        fail = True
         ttk.Label(root, text="Warning, instance already open!").pack()
         ttk.Label(root, text=f"If it is hidden, use {KEYBIND} to show it").pack()
         ttk.Button(root, text="Close", command=lambda: root.destroy()).pack()

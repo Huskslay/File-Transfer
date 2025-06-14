@@ -1,5 +1,6 @@
 import os
 from tkinter import simpledialog
+from typing import Union
 
 from icon import ICONDATA
 
@@ -14,11 +15,10 @@ class PortIconFileManager:
         self.iconname = "icon.ico"
         self.save_icon()
 
-    def get_new_port(self) -> int:
-        user_input = simpledialog.askinteger("Enter port", "Port:")
-        if user_input is not None:
-            return user_input
-        return -1
+    def get_new_port(self, issues: str = "") -> Union[int, None]:
+        if issues == "":
+            return simpledialog.askinteger("Enter port", "Port:")
+        return simpledialog.askinteger("Enter port", f"{issues}\nPort:")
     def write_port(self, new_port: int) -> None:
         if os.path.exists(os.path.join(self.path, self.filename)):
             os.remove(os.path.join(self.path, self.filename))
@@ -29,11 +29,16 @@ class PortIconFileManager:
             file.writelines(f"{new_port}\n")
     def get_port(self) -> int:
         if not os.path.exists(os.path.join(self.path, self.filename)):  
-            new_port = -1 
-            while new_port < 0: new_port = self.get_new_port()
+            new_port = self.get_new_port()
+            while new_port == None or not self.port_allowed(new_port): 
+                new_port = self.get_new_port(f"Port `{new_port}` not allowed")
+            if new_port == None: return -1
             self.write_port(new_port)
         with open(os.path.join(self.path, self.filename), "r") as file:
            return (int)(file.readlines()[0])
+    def port_allowed(self, port: Union[int, None]) -> bool:
+        if port == None: return True
+        return port > 0 and port not in [1337]
         
     def save_icon(self) -> None:
         if not os.path.exists(self.path):
