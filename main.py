@@ -8,7 +8,7 @@ from windows import App
 from systray import SysTray
 
 KEYBIND = "ctrl+f10"
-VERSION = "v1.1.4"
+VERSION = "v1.1.5"
 
 def make_on_startup() -> None:
     if getattr(sys, "frozen", False): exe_path = sys.executable
