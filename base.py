@@ -105,10 +105,11 @@ class BaseCommunicationWindow(Window):
         pass
 
 class BaseApp:
-    def __init__(self, master: tk.Tk) -> None:
+    def __init__(self, master: tk.Tk, version: str, keybind: str) -> None:
         self.master = master
         self.window: Union[Window, None] = None
         self.first_open: bool = True
+        self.keybind = keybind
         self.systray: Union[BaseSysTray, None] = None
         self.has_quit = False
         self.port_manager = PortIconFileManager()

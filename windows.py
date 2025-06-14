@@ -10,9 +10,6 @@ from server import Server, Client, Communicator, SIZE, FORMAT
 from files import PortIconFileManager, FileData
 from base import Window, BaseChooseFilesWindow, BaseCommunicationWindow, BaseHomeWindow, BaseApp, BaseSysTray
 
-KEYBIND = "ctrl+f10"
-VERSION = "v1.1.2"
-
 class HomeWindow(BaseHomeWindow):
     def __init__(self) -> None:
         self.hidden = False
@@ -21,8 +18,8 @@ class HomeWindow(BaseHomeWindow):
     def hotkey_callback(self) -> None:
         if not self.hidden: return
         self.hidden = False
-        keyboard.remove_hotkey(KEYBIND)
-        keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
+        keyboard.remove_hotkey(self.app.keybind)
+        keyboard.add_hotkey(self.app.keybind, self.hide_and_set_hotkey)
         self.app.master.deiconify()    
         self.app.master.attributes("-topmost", True)
         self.app.master.attributes("-topmost", False)
@@ -30,8 +27,8 @@ class HomeWindow(BaseHomeWindow):
     def hide_and_set_hotkey(self) -> None:
         if self.hidden or not self.can_hide: return
         self.hidden = True
-        keyboard.remove_hotkey(KEYBIND)
-        keyboard.add_hotkey(KEYBIND, self.hotkey_callback)
+        keyboard.remove_hotkey(self.app.keybind)
+        keyboard.add_hotkey(self.app.keybind, self.hotkey_callback)
         self.app.master.withdraw()
         
     def change_port(self) -> None:
@@ -56,7 +53,7 @@ class HomeWindow(BaseHomeWindow):
         self.thread.start()
 
         label = ttk.Label(self.base_frame, text="Home Menu")
-        button = ttk.Button(self.base_frame, text=f"Hide window ({KEYBIND} to return)", command=self.hide_and_set_hotkey, width=100)
+        button = ttk.Button(self.base_frame, text=f"Hide window ({self.app.keybind} to return)", command=self.hide_and_set_hotkey, width=100)
 
         frame = ttk.Frame(self.base_frame, width=500, height=20)
         self.address_label = ttk.Label(frame, text=f"Listening on {self.server.ip}:{self.app.port_manager.port}")
@@ -78,7 +75,7 @@ class HomeWindow(BaseHomeWindow):
                            command=lambda: self.app.set_window(self.app.send_files_window), width=100)
         label.pack()
 
-        keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
+        keyboard.add_hotkey(self.app.keybind, self.hide_and_set_hotkey)
         if len(sys.argv) > 1: 
             if sys.argv[1] == "withdraw" and self.app.first_open: 
                 self.hide_and_set_hotkey()
@@ -100,7 +97,7 @@ class HomeWindow(BaseHomeWindow):
 
     def on_end(self) -> None:
         self.app.master.after_cancel(self.after)
-        keyboard.remove_hotkey(KEYBIND)
+        keyboard.remove_hotkey(self.app.keybind)
         if self.running:
             self.running = False
             self.server.close()
@@ -404,14 +401,15 @@ class OptionDialog(tk.Toplevel):
 
 
 class App(BaseApp):
-    def __init__(self, master: tk.Tk) -> None:
+    def __init__(self, master: tk.Tk, version: str, keybind: str) -> None:
         self.master = master
         self.master.geometry("500x400")
         self.master.title("File-Transfer")
         self.window: Union[Window, None] = None
         self.first_open: bool = True
+        self.keybind = keybind
 
-        ttk.Label(self.master, text=VERSION).pack(side=tk.BOTTOM)
+        ttk.Label(self.master, text=version).pack(side=tk.BOTTOM)
 
         self.systray: Union[BaseSysTray, None] = None
         self.has_quit = False
@@ -437,7 +435,7 @@ class App(BaseApp):
         self.quit()
 
     def on_close(self) -> None:
-        dlg = OptionDialog(self.master, "Quit", ["Do you want to quit or minimise", f"(Unminimise with {KEYBIND})"], ["Quit", "Minimise", "No"])
+        dlg = OptionDialog(self.master, "Quit", ["Do you want to quit or minimise", f"(Unminimise with {self.keybind})"], ["Quit", "Minimise", "No"])
         if dlg.result == "Quit": 
             if self.systray != None: self.systray.sysTrayIcon.shutdown()
             else: self.quit()
