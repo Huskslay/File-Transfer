@@ -6,11 +6,11 @@ SIZE = 1048576
 FORMAT = "utf-8"
 
 class Communicator:
-    def send(self, data: bytes) -> None:
+    def send_encr(self, data: bytes) -> None:
         pass
     def send_str(self, data: str) -> None:
         pass
-    def recieve(self) -> bytes:
+    def recieve_ecr(self) -> bytes:
         return b""
 
 class Server(Communicator):
@@ -31,12 +31,23 @@ class Server(Communicator):
         self.private.setup_with_encrypted_fernet_key(encrypted_fernet_key)
 
     def send(self, data: bytes) -> None:
+        self.clientSocket.send(data)
+    def sendall(self, data: bytes) -> None:
+        self.clientSocket.sendall(data)
+    def send_encr(self, data: bytes) -> None:
         encrypted_data = self.private.encrypt(data)
         self.clientSocket.send(encrypted_data)
     def send_str(self, data: str) -> None:
         encrypted_data = self.private.encrypt(data.encode(FORMAT))
         self.clientSocket.send(encrypted_data)
-    def recieve(self) -> bytes:
+    def recieve(self, size: int = -1) -> bytes:
+        if size < 1: size = SIZE
+        return self.clientSocket.recv(size)
+    def recieve_to(self, to_read: int) -> bytes:
+        if to_read > SIZE: size = SIZE
+        else: size = to_read
+        return self.clientSocket.recv(size)
+    def recieve_ecr(self) -> bytes:
         encrypted_data = self.clientSocket.recv(SIZE)
         return self.private.decrypt(encrypted_data)
     
@@ -62,12 +73,19 @@ class Client(Communicator):
         self.socket.send(self.public.encrypted_fernet_key())
 
     def send(self, data: bytes) -> None:
+        self.socket.send(data)
+    def sendall(self, data: bytes) -> None:
+        self.socket.sendall(data)
+    def send_encr(self, data: bytes) -> None:
         encrypted_data = self.public.encrypt(data)
         self.socket.send(encrypted_data)
     def send_str(self, data: str) -> None:
         encrypted_data = self.public.encrypt(data.encode(FORMAT))
         self.socket.send(encrypted_data)
     def recieve(self, size: int = -1) -> bytes:
+        if size < 1: size = SIZE
+        return self.socket.recv(size)
+    def recieve_ecr(self, size: int = -1) -> bytes:
         if size < 1: size = SIZE
         encrypted_data = self.socket.recv(size)
         return self.public.decrypt(encrypted_data)
@@ -91,9 +109,9 @@ if __name__ == "__main__":
         server = Server()
         server.setup(PORT)
 
-        server.send(ONE.encode())
-        print(server.recieve().decode() == TWO)
-        print(server.recieve().decode() == THREE)
+        server.send_encr(ONE.encode())
+        print(server.recieve_ecr().decode() == TWO)
+        print(server.recieve_ecr().decode() == THREE)
 
     Thread(target=server).start()
     sleep(0.1)
@@ -102,6 +120,6 @@ if __name__ == "__main__":
     client = Client()
     client.connect(ip, PORT)
 
-    print(client.recieve().decode() == ONE)
-    client.send(TWO.encode())
-    client.send(THREE.encode())
+    print(client.recieve_ecr().decode() == ONE)
+    client.send_encr(TWO.encode())
+    client.send_encr(THREE.encode())

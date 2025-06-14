@@ -81,7 +81,7 @@ class BaseCommunicationWindow(Window):
         pass
     def file_thread_client(self, client: Client) -> None:
         pass
-    def file_thread_server(self, server: Server) -> None:
+    def file_thread_server(self, server: Server, label: ttk.Label) -> None:
         pass
 
     def send_data_start(self, filepath: str, ip: str, port: int) -> None:
@@ -105,10 +105,11 @@ class BaseCommunicationWindow(Window):
         pass
 
 class BaseApp:
-    def __init__(self, master: tk.Tk) -> None:
+    def __init__(self, master: tk.Tk, version: str, keybind: str) -> None:
         self.master = master
         self.window: Union[Window, None] = None
         self.first_open: bool = True
+        self.keybind = keybind
         self.systray: Union[BaseSysTray, None] = None
         self.has_quit = False
         self.port_manager = PortIconFileManager()

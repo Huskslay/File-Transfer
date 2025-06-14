@@ -4,9 +4,11 @@ from tendo import singleton
 
 import winreg, sys, os
 
-from windows import App, KEYBIND
+from windows import App
 from systray import SysTray
 
+KEYBIND = "ctrl+f10"
+VERSION = "v1.1.3"
 
 def make_on_startup() -> None:
     if getattr(sys, "frozen", False): exe_path = sys.executable
@@ -34,7 +36,7 @@ if __name__ == "__main__":
 
     root = tk.Tk()
     if is_only_version():
-        SysTray(App(root))
+        SysTray(App(root, VERSION, KEYBIND))
         root.mainloop()
     else:
         fail = True

@@ -10,9 +10,6 @@ from server import Server, Client, Communicator, SIZE, FORMAT
 from files import PortIconFileManager, FileData
 from base import Window, BaseChooseFilesWindow, BaseCommunicationWindow, BaseHomeWindow, BaseApp, BaseSysTray
 
-KEYBIND = "ctrl+f10"
-VERSION = "v1.1.2"
-
 class HomeWindow(BaseHomeWindow):
     def __init__(self) -> None:
         self.hidden = False
@@ -21,8 +18,8 @@ class HomeWindow(BaseHomeWindow):
     def hotkey_callback(self) -> None:
         if not self.hidden: return
         self.hidden = False
-        keyboard.remove_hotkey(KEYBIND)
-        keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
+        keyboard.remove_hotkey(self.app.keybind)
+        keyboard.add_hotkey(self.app.keybind, self.hide_and_set_hotkey)
         self.app.master.deiconify()    
         self.app.master.attributes("-topmost", True)
         self.app.master.attributes("-topmost", False)
@@ -30,8 +27,8 @@ class HomeWindow(BaseHomeWindow):
     def hide_and_set_hotkey(self) -> None:
         if self.hidden or not self.can_hide: return
         self.hidden = True
-        keyboard.remove_hotkey(KEYBIND)
-        keyboard.add_hotkey(KEYBIND, self.hotkey_callback)
+        keyboard.remove_hotkey(self.app.keybind)
+        keyboard.add_hotkey(self.app.keybind, self.hotkey_callback)
         self.app.master.withdraw()
         
     def change_port(self) -> None:
@@ -56,7 +53,7 @@ class HomeWindow(BaseHomeWindow):
         self.thread.start()
 
         label = ttk.Label(self.base_frame, text="Home Menu")
-        button = ttk.Button(self.base_frame, text=f"Hide window ({KEYBIND} to return)", command=self.hide_and_set_hotkey, width=100)
+        button = ttk.Button(self.base_frame, text=f"Hide window ({self.app.keybind} to return)", command=self.hide_and_set_hotkey, width=100)
 
         frame = ttk.Frame(self.base_frame, width=500, height=20)
         self.address_label = ttk.Label(frame, text=f"Listening on {self.server.ip}:{self.app.port_manager.port}")
@@ -78,7 +75,7 @@ class HomeWindow(BaseHomeWindow):
                            command=lambda: self.app.set_window(self.app.send_files_window), width=100)
         label.pack()
 
-        keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
+        keyboard.add_hotkey(self.app.keybind, self.hide_and_set_hotkey)
         if len(sys.argv) > 1: 
             if sys.argv[1] == "withdraw" and self.app.first_open: 
                 self.hide_and_set_hotkey()
@@ -100,7 +97,7 @@ class HomeWindow(BaseHomeWindow):
 
     def on_end(self) -> None:
         self.app.master.after_cancel(self.after)
-        keyboard.remove_hotkey(KEYBIND)
+        keyboard.remove_hotkey(self.app.keybind)
         if self.running:
             self.running = False
             self.server.close()
@@ -214,21 +211,20 @@ class CommunicationWindow(BaseCommunicationWindow):
         self.app.set_window(self.app.home_window)
 
     def recv_thread(self, communicator: Communicator) -> None:
-        self.data = communicator.recieve()
+        self.data = communicator.recieve_ecr()
     def file_thread_client(self, client: Client) -> None:
-        with open(self.filepath, "rb") as f:
-            while self.filesize > 0:
-                reading = min(SIZE // 3, self.filesize)
-                self.filesize -= reading
-                client.send(f.read(reading))
-                self.data = client.recieve()
-    def file_thread_server(self, server: Server) -> None:
-        to_read = self.file_data.filesize
-        while to_read > 0:
-            recieved = server.recieve()
-            self.file_data.data += recieved
-            to_read -= len(recieved)
-            server.send(b"c")
+        client.sendall(self.encrypted_data)
+        client.recieve()
+    def file_thread_server(self, server: Server, label: ttk.Label) -> None:
+        total = to_read = self.file_data.filesize
+        data = b""
+        label.config(text=f"Progress: 0%")
+        while (to_read := total - len(data)) > 0:
+            label.config(text=f"Progress: {round(100 - (to_read * 100 / total), 2)}%")
+            data += server.recieve_to(to_read)
+        label.config(text=f"Progress: 100%")
+        self.file_data.data = server.private.decrypt(data)
+        server.send(b"d")
 
     def send_data_start(self, filepath: str, ip: str, port: int) -> None:
         ttk.Label(self.base_frame, text="Sending Data!").pack()
@@ -264,10 +260,13 @@ class CommunicationWindow(BaseCommunicationWindow):
             return
         ttk.Label(self.base_frame, text="Connection accepted.").pack()
 
+        with open(self.filepath, "rb") as f:
+            self.encrypted_data = self.client.public.encrypt(f.read())
+
         ttk.Label(self.base_frame, text="Sending size data...").pack()
-        self.filesize = os.path.getsize(self.filepath)
+        self.filesize = len(self.encrypted_data)
         file_size_in_bytes = self.filesize.to_bytes(8, "big")
-        self.client.send(file_size_in_bytes)
+        self.client.send_encr(file_size_in_bytes)
 
         self.thread = Thread(target=self.recv_thread, args=(self.client,))
         self.thread.start()
@@ -306,10 +305,10 @@ class CommunicationWindow(BaseCommunicationWindow):
         ttk.Label(self.base_frame, text="Selecting choice...").pack()
         time.sleep(0.1)
         if not messagebox.askokcancel("Accept", f"Accept from {server.returnAddress[0]}:{server.returnAddress[1]}?"):
-            server.send(b"n")
+            server.send_encr(b"n")
             self.set_way_back(server.close)
             return
-        server.send(b"y")
+        server.send_encr(b"y")
         self.server = server
         self.file_data = FileData()
 
@@ -323,7 +322,7 @@ class CommunicationWindow(BaseCommunicationWindow):
             return
         
         self.file_data.set_size(self.data)
-        self.server.send(b"c")
+        self.server.send_encr(b"c")
 
         ttk.Label(self.base_frame, text="Getting name data...").pack()
         self.thread = Thread(target=self.recv_thread, args=(self.server,))
@@ -336,10 +335,12 @@ class CommunicationWindow(BaseCommunicationWindow):
         
         self.file_data.filename = self.data.decode(FORMAT)
         ttk.Label(self.base_frame, text=f"Recieved name: `{self.file_data.filename}`").pack()
-        self.server.send(b"c")
+        self.server.send_encr(b"c")
 
         ttk.Label(self.base_frame, text="Getting file data...").pack()
-        self.thread = Thread(target=self.file_thread_server, args=(self.server,))
+        label = ttk.Label(self.base_frame, text="")
+        label.pack()
+        self.thread = Thread(target=self.file_thread_server, args=(self.server, label,))
         self.thread.start()
         self.app.master.after(100, self.recieve_data_data)
     def recieve_data_data(self) -> None:
@@ -400,14 +401,15 @@ class OptionDialog(tk.Toplevel):
 
 
 class App(BaseApp):
-    def __init__(self, master: tk.Tk) -> None:
+    def __init__(self, master: tk.Tk, version: str, keybind: str) -> None:
         self.master = master
         self.master.geometry("500x400")
         self.master.title("File-Transfer")
         self.window: Union[Window, None] = None
         self.first_open: bool = True
+        self.keybind = keybind
 
-        ttk.Label(self.master, text=VERSION).pack(side=tk.BOTTOM)
+        ttk.Label(self.master, text=version).pack(side=tk.BOTTOM)
 
         self.systray: Union[BaseSysTray, None] = None
         self.has_quit = False
@@ -433,7 +435,7 @@ class App(BaseApp):
         self.quit()
 
     def on_close(self) -> None:
-        dlg = OptionDialog(self.master, "Quit", ["Do you want to quit or minimise", f"(Unminimise with {KEYBIND})"], ["Quit", "Minimise", "No"])
+        dlg = OptionDialog(self.master, "Quit", ["Do you want to quit or minimise", f"(Unminimise with {self.keybind})"], ["Quit", "Minimise", "No"])
         if dlg.result == "Quit": 
             if self.systray != None: self.systray.sysTrayIcon.shutdown()
             else: self.quit()
