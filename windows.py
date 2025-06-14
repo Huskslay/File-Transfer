@@ -11,7 +11,7 @@ from files import PortIconFileManager, FileData
 from base import Window, BaseChooseFilesWindow, BaseCommunicationWindow, BaseHomeWindow, BaseApp, BaseSysTray
 
 KEYBIND = "ctrl+f10"
-VERSION = "v1.1.1"
+VERSION = "v1.1.2"
 
 class HomeWindow(BaseHomeWindow):
     def __init__(self) -> None:
