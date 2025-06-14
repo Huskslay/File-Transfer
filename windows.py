@@ -78,11 +78,11 @@ class HomeWindow(BaseHomeWindow):
                            command=lambda: self.app.set_window(self.app.send_files_window), width=100)
         label.pack()
 
+        keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
         if len(sys.argv) > 1: 
             if sys.argv[1] == "withdraw" and self.app.first_open: 
                 self.hide_and_set_hotkey()
         self.app.first_open = False
-        keyboard.add_hotkey(KEYBIND, self.hide_and_set_hotkey)
         self.after = self.app.master.after(100, self.listen_for_result)
     def listen_for_result(self) -> None:
         if not self.running:
